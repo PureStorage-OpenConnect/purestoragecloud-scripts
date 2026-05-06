@@ -57,7 +57,7 @@ param (
   [Parameter(Mandatory = $false, HelpMessage = 'Enter name for temporary VM created for connectivity tests')]
   [ValidateNotNullOrEmpty()]
   [string]
-  $tempVmName = 'Everpure Cloud Dedicated-TestVM',
+  $tempVmName = 'Everpure-Cloud-Dedicated-TestVM',
 
   [Parameter(Mandatory = $false, HelpMessage = "List of tags to be assigned to the temporary VM created for connectivity tests, required by your Azure landing zone (e.g. @{'tag1'='value1';'tag2'='value2'})")]
   [hashtable]
