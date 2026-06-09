@@ -204,8 +204,7 @@ try {
   'restricted-ra.cloud-support.purestorage.com',
   'rest.cloud-support.purestorage.com',
   'rest2.cloud-support.purestorage.com',
-  'management.azure.com',
-  'cosmos.azure.com'
+  'management.azure.com'
 
   # Resource_Group
   Write-Progress 'Checking vNET presence' -PercentComplete 0
