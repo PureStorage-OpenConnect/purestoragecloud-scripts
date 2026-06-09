@@ -368,26 +368,54 @@ try {
 
   Write-Progress 'Checking Managed Disk availability' -PercentComplete 0
   try {
-$zones = Get-AzComputeResourceSku -Location $region | Where-Object {$_.ResourceType -eq 'disks' -and $_.Name -eq $diskType } | Select-Object -ExpandProperty LocationInfo | Select-Object -ExpandProperty Zones
+    $diskSku = Get-AzComputeResourceSku -Location $region | Where-Object { $_.ResourceType -eq 'disks' -and $_.Name -eq $diskType }
+
+    if ($null -eq $diskSku) {
+      throw "Disk SKU '$diskType' not found in Azure Resource SKU data for region '$region'"
+    }
+
+    $locationInfo = $diskSku.LocationInfo
+    $zones = $diskSku.LocationInfo.Zones
   } catch {
     Write-Host "Error retrieving disk SKU availability: $_"
     exit
   }
 
-  if ($zones) {
-
-    $finalReportOutput += [pscustomobject]@{
-      TestName = 'Managed Disks availability'
-      Result   = 'OK'
-      Details  = "The disk SKU '$diskType' is available in region '$region' in availability zones '$zones' for deploying a $Model"
-    };
+  if ($null -ne $locationInfo) {
+    # Disk SKU is available in this region
+    if ($null -ne $zones -and $zones.Count -gt 0) {
+      $finalReportOutput += [pscustomobject]@{
+        TestName = 'Managed Disks availability'
+        Result   = 'OK'
+        Details  = "The disk SKU '$diskType' is available in region '$region' in availability zones '$zones' for deploying a $Model"
+      };
+    } else {
+      # No zonal region - disk is available but doesn't have multiple zones
+      $finalReportOutput += [pscustomobject]@{
+        TestName = 'Managed Disks availability'
+        Result   = 'OK'
+        Details  = "The disk SKU '$diskType' is available in region '$region' (No Zonal Region - single datacenter) for deploying a $Model"
+      };
+    }
   } else {
-
     $finalReportOutput += [pscustomobject]@{
       TestName = 'Managed Disks availability'
       Result   = 'FAILED'
       Details  = "The disk SKU '$diskType' is NOT available in region '$region' for deploying a $Model"
     };
+
+    Write-Progress 'Checking Managed Disk availability' -PercentComplete 100
+
+    # Print final report and exit since Managed Disks are not available
+    Write-Host
+    Write-Host -ForegroundColor DarkRed '-----------------------------------------------------'
+    Write-Host -ForegroundColor DarkRed 'Final Report'
+    Write-Host -ForegroundColor DarkRed '-----------------------------------------------------'
+    Write-Host
+    $finalReportOutput | Format-Table -AutoSize
+    Write-Host
+    Write-Error "Cannot continue: Managed disk SKU '$diskType' is not available in region '$region'. This is a critical prerequisite for deploying $Model." -ErrorAction Stop
+    exit
   }
 
   Write-Progress 'Checking Managed Disk availability' -PercentComplete 100
@@ -489,9 +517,26 @@ $zones = Get-AzComputeResourceSku -Location $region | Where-Object {$_.ResourceT
 
   Write-Progress 'Creating a temporary test loadbalancer in System subnet' -PercentComplete 50
 
-  $loadBalancer = New-AzLoadBalancer -ResourceGroupName $rg -Name "$TempVMName-LB" -Location $region -FrontendIpConfiguration $frontendIP -LoadBalancingRule $lbRule -BackendAddressPool $backendPool -Sku 'Standard' -Force -Confirm:$false
+  try {
+    $loadBalancer = New-AzLoadBalancer -ResourceGroupName $rg -Name "$TempVMName-LB" -Location $region -FrontendIpConfiguration $frontendIP -LoadBalancingRule $lbRule -BackendAddressPool $backendPool -Sku 'Standard' -Force -Confirm:$false
 
-  $bepool = $loadBalancer.BackendAddressPools[0]
+    if ($null -eq $loadBalancer) {
+      throw "LoadBalancer creation returned null. Check resource group '$rg' and name '$TempVMName-LB' validity."
+    }
+
+    $bepool = $loadBalancer.BackendAddressPools[0]
+  } catch {
+    Write-Host
+    Write-Host -ForegroundColor DarkRed '-----------------------------------------------------'
+    Write-Host -ForegroundColor DarkRed 'Final Report'
+    Write-Host -ForegroundColor DarkRed '-----------------------------------------------------'
+    Write-Host
+    $finalReportOutput | Format-Table -AutoSize
+    Write-Host
+    Write-Error "Failed to create temporary LoadBalancer: $_" -ErrorAction Stop
+    exit
+  }
+
   Write-Progress 'Creating a temporary test loadbalancer in System subnet' -PercentComplete 100
 
   Write-Progress 'Creating a temporary test VM in System subnet' -PercentComplete 0
