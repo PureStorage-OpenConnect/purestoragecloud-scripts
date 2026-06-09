@@ -393,7 +393,7 @@ try {
       $finalReportOutput += [pscustomobject]@{
         TestName = 'Managed Disks availability'
         Result   = 'OK'
-        Details  = "The disk SKU '$diskType' is available in region '$region' (No Zonal Region - single datacenter) for deploying a $Model"
+        Details  = "The disk SKU '$diskType' is available in region '$region' (No Zone Region) for deploying a $Model"
       };
     }
   } else {
