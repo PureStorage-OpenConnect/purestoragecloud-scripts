@@ -1,6 +1,6 @@
 <#
     paz-checklist.ps1 -
-    Version:        3.1.2
+    Version:        3.1.3
     Author:         Vaclav Jirovsky, Adam Mazouz, David Stamen @ Everpure
 .SYNOPSIS
     Checking if the prerequisites required for deploying Everpure Cloud Dedicated are met before create the array on Azure.
@@ -57,7 +57,7 @@ param (
   [Parameter(Mandatory = $false, HelpMessage = 'Enter name for temporary VM created for connectivity tests')]
   [ValidateNotNullOrEmpty()]
   [string]
-  $tempVmName = 'Everpure Cloud Dedicated-TestVM',
+  $tempVmName = 'ECDedicated-TestVM',
 
   [Parameter(Mandatory = $false, HelpMessage = "List of tags to be assigned to the temporary VM created for connectivity tests, required by your Azure landing zone (e.g. @{'tag1'='value1';'tag2'='value2'})")]
   [hashtable]
@@ -82,9 +82,12 @@ if ($tempVmOS -in $AcceptableOS) {
 
 if ($Model-eq 'V10MP2R2' -or $Model-eq 'V20MP2R2') {
   $supportedRegions =
+  'australiacentral',
   'australiaeast',
   'brazilsouth',
+  'brazilsoutheast',
   'canadacentral',
+  'canadaeast',
   'centralindia',
   'centralus',
   'eastasia',
@@ -98,8 +101,11 @@ if ($Model-eq 'V10MP2R2' -or $Model-eq 'V20MP2R2') {
   'koreacentral',
   'mexicocentral',
   'northeurope',
+  'northcentralus',
   'norwayeast',
+  'norwaywest',
   'polandcentral',
+  'qatarcentral',
   'southafricanorth',
   'southcentralus',
   'southeastasia',
@@ -108,15 +114,12 @@ if ($Model-eq 'V10MP2R2' -or $Model-eq 'V20MP2R2') {
   'switzerlandnorth',
   'uaenorth',
   'uksouth',
-  'westeurope',
-  'westus2',
-  'westus3',
-  'westus',
-  'northcentralus',
-  'canadaeast',
-  'norwaywest',
   'ukwest',
-  'westcentralus'
+  'westeurope',
+  'westcentralus',
+  'westus',
+  'westus2',
+  'westus3'
 } elseif ($Model-eq 'V10MUR1' -or $Model-eq 'V20MUR1') {
   $supportedRegions =
   'australiacentral',
@@ -166,7 +169,7 @@ else {
   exit;
 }
 
-$CLI_VERSION = '3.1.2'
+$CLI_VERSION = '3.1.3'
 
 Write-Host -ForegroundColor DarkRed @"
   ______
@@ -201,8 +204,7 @@ try {
   'restricted-ra.cloud-support.purestorage.com',
   'rest.cloud-support.purestorage.com',
   'rest2.cloud-support.purestorage.com',
-  'management.azure.com',
-  'cosmos.azure.com'
+  'management.azure.com'
 
   # Resource_Group
   Write-Progress 'Checking vNET presence' -PercentComplete 0
@@ -365,26 +367,54 @@ try {
 
   Write-Progress 'Checking Managed Disk availability' -PercentComplete 0
   try {
-$zones = Get-AzComputeResourceSku -Location $region | Where-Object {$_.ResourceType -eq 'disks' -and $_.Name -eq $diskType } | Select-Object -ExpandProperty LocationInfo | Select-Object -ExpandProperty Zones
+    $diskSku = Get-AzComputeResourceSku -Location $region | Where-Object { $_.ResourceType -eq 'disks' -and $_.Name -eq $diskType }
+
+    if ($null -eq $diskSku) {
+      throw "Disk SKU '$diskType' not found in Azure Resource SKU data for region '$region'"
+    }
+
+    $locationInfo = $diskSku.LocationInfo
+    $zones = $diskSku.LocationInfo.Zones
   } catch {
     Write-Host "Error retrieving disk SKU availability: $_"
     exit
   }
 
-  if ($zones) {
-
-    $finalReportOutput += [pscustomobject]@{
-      TestName = 'Managed Disks availability'
-      Result   = 'OK'
-      Details  = "The disk SKU '$diskType' is available in region '$region' in availability zones '$zones' for deploying a $Model"
-    };
+  if ($null -ne $locationInfo) {
+    # Disk SKU is available in this region
+    if ($null -ne $zones -and $zones.Count -gt 0) {
+      $finalReportOutput += [pscustomobject]@{
+        TestName = 'Managed Disks availability'
+        Result   = 'OK'
+        Details  = "The disk SKU '$diskType' is available in region '$region' in availability zones '$zones' for deploying a $Model"
+      };
+    } else {
+      # No zonal region - disk is available but doesn't have multiple zones
+      $finalReportOutput += [pscustomobject]@{
+        TestName = 'Managed Disks availability'
+        Result   = 'OK'
+        Details  = "The disk SKU '$diskType' is available in region '$region' (No Zone Region) for deploying a $Model"
+      };
+    }
   } else {
-
     $finalReportOutput += [pscustomobject]@{
       TestName = 'Managed Disks availability'
       Result   = 'FAILED'
       Details  = "The disk SKU '$diskType' is NOT available in region '$region' for deploying a $Model"
     };
+
+    Write-Progress 'Checking Managed Disk availability' -PercentComplete 100
+
+    # Print final report and exit since Managed Disks are not available
+    Write-Host
+    Write-Host -ForegroundColor DarkRed '-----------------------------------------------------'
+    Write-Host -ForegroundColor DarkRed 'Final Report'
+    Write-Host -ForegroundColor DarkRed '-----------------------------------------------------'
+    Write-Host
+    $finalReportOutput | Format-Table -AutoSize
+    Write-Host
+    Write-Error "Cannot continue: Managed disk SKU '$diskType' is not available in region '$region'. This is a critical prerequisite for deploying $Model." -ErrorAction Stop
+    exit
   }
 
   Write-Progress 'Checking Managed Disk availability' -PercentComplete 100
@@ -486,9 +516,26 @@ $zones = Get-AzComputeResourceSku -Location $region | Where-Object {$_.ResourceT
 
   Write-Progress 'Creating a temporary test loadbalancer in System subnet' -PercentComplete 50
 
-  $loadBalancer = New-AzLoadBalancer -ResourceGroupName $rg -Name "$TempVMName-LB" -Location $region -FrontendIpConfiguration $frontendIP -LoadBalancingRule $lbRule -BackendAddressPool $backendPool -Sku 'Standard' -Force -Confirm:$false
+  try {
+    $loadBalancer = New-AzLoadBalancer -ResourceGroupName $rg -Name "$TempVMName-LB" -Location $region -FrontendIpConfiguration $frontendIP -LoadBalancingRule $lbRule -BackendAddressPool $backendPool -Sku 'Standard' -Force -Confirm:$false
 
-  $bepool = $loadBalancer.BackendAddressPools[0]
+    if ($null -eq $loadBalancer) {
+      throw "LoadBalancer creation returned null. Check resource group '$rg' and name '$TempVMName-LB' validity."
+    }
+
+    $bepool = $loadBalancer.BackendAddressPools[0]
+  } catch {
+    Write-Host
+    Write-Host -ForegroundColor DarkRed '-----------------------------------------------------'
+    Write-Host -ForegroundColor DarkRed 'Final Report'
+    Write-Host -ForegroundColor DarkRed '-----------------------------------------------------'
+    Write-Host
+    $finalReportOutput | Format-Table -AutoSize
+    Write-Host
+    Write-Error "Failed to create temporary LoadBalancer: $_" -ErrorAction Stop
+    exit
+  }
+
   Write-Progress 'Creating a temporary test loadbalancer in System subnet' -PercentComplete 100
 
   Write-Progress 'Creating a temporary test VM in System subnet' -PercentComplete 0
