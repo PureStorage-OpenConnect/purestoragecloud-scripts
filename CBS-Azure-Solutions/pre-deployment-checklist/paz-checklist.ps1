@@ -1,6 +1,6 @@
 <#
     paz-checklist.ps1 -
-    Version:        3.1.2
+    Version:        3.1.3
     Author:         Vaclav Jirovsky, Adam Mazouz, David Stamen @ Everpure
 .SYNOPSIS
     Checking if the prerequisites required for deploying Everpure Cloud Dedicated are met before create the array on Azure.
@@ -57,7 +57,7 @@ param (
   [Parameter(Mandatory = $false, HelpMessage = 'Enter name for temporary VM created for connectivity tests')]
   [ValidateNotNullOrEmpty()]
   [string]
-  $tempVmName = 'Everpure-Cloud-Dedicated-TestVM',
+  $tempVmName = 'ECDedicated-TestVM',
 
   [Parameter(Mandatory = $false, HelpMessage = "List of tags to be assigned to the temporary VM created for connectivity tests, required by your Azure landing zone (e.g. @{'tag1'='value1';'tag2'='value2'})")]
   [hashtable]
@@ -82,9 +82,12 @@ if ($tempVmOS -in $AcceptableOS) {
 
 if ($Model-eq 'V10MP2R2' -or $Model-eq 'V20MP2R2') {
   $supportedRegions =
+  'australiacentral',
   'australiaeast',
   'brazilsouth',
+  'brazilsoutheast',
   'canadacentral',
+  'canadaeast',
   'centralindia',
   'centralus',
   'eastasia',
@@ -98,8 +101,11 @@ if ($Model-eq 'V10MP2R2' -or $Model-eq 'V20MP2R2') {
   'koreacentral',
   'mexicocentral',
   'northeurope',
+  'northcentralus',
   'norwayeast',
+  'norwaywest',
   'polandcentral',
+  'qatarcentral',
   'southafricanorth',
   'southcentralus',
   'southeastasia',
@@ -108,15 +114,12 @@ if ($Model-eq 'V10MP2R2' -or $Model-eq 'V20MP2R2') {
   'switzerlandnorth',
   'uaenorth',
   'uksouth',
-  'westeurope',
-  'westus2',
-  'westus3',
-  'westus',
-  'northcentralus',
-  'canadaeast',
-  'norwaywest',
   'ukwest',
-  'westcentralus'
+  'westeurope',
+  'westcentralus',
+  'westus',
+  'westus2',
+  'westus3'
 } elseif ($Model-eq 'V10MUR1' -or $Model-eq 'V20MUR1') {
   $supportedRegions =
   'australiacentral',
@@ -166,7 +169,7 @@ else {
   exit;
 }
 
-$CLI_VERSION = '3.1.2'
+$CLI_VERSION = '3.1.3'
 
 Write-Host -ForegroundColor DarkRed @"
   ______
