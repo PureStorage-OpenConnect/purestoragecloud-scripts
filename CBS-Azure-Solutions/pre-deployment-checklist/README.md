@@ -53,7 +53,7 @@ This script will validate and verify the following:
 
 ## CHANGELOG
 
-- 06/09/26 3.1.3 Improved disk availability checking for No Zonal Regions, better error handling for critical prerequisite failures
+- 06/09/26 3.1.3 Improved disk availability checking for No Zonal Regions, better error handling for critical prerequisite failures, removed unused cosmos.azure.com endpoint
 - 03/27/26 3.1.2 Update branding and Region Support
 - 09/18/25 3.1.0 Updated to add Support for V50MP2R2 Model and Bug Fixes
 - 09/02/25 3.0.9 Updated to check for Azure VM Regional and Zonal Restrictions
