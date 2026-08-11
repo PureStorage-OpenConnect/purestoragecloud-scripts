@@ -30,4 +30,23 @@ resources
 | extend createdDateTime = properties.timeCreated
 | where isnull(properties.osType)
 | summarize arg_min(diskName, *) by diskName
-| project azureRegion, azureZone, subscriptionName, resourceGroup, resourceId, resourceName, diskName, diskType, osDisk, diskSize, diskBW, diskIOPS, diskState, managedBy, createdDateTime, VmName, vnetName
+| join kind=leftouter (
+    resources
+    | where type =~ 'microsoft.compute/snapshots'
+    | extend sourceDiskId = tolower(tostring(properties.creationData.sourceResourceId))
+    | extend snapDiskSizeGB = toreal(properties.diskSizeGB)
+    | extend isIncremental = tobool(properties.incremental)
+    | summarize
+        snapshotCount = count(),
+        snapshotBilledCapacityGB = sumif(snapDiskSizeGB, isIncremental == false),
+        snapshotProvisionedCapacityGB = sum(snapDiskSizeGB),
+        incrementalSnapshotCount = countif(isIncremental == true)
+        by sourceDiskId
+) on $left.resourceId == $right.sourceDiskId
+| extend snapshotCount = coalesce(snapshotCount, 0)
+| extend snapshotBilledCapacityGB = coalesce(snapshotBilledCapacityGB, 0.0)
+| extend snapshotProvisionedCapacityGB = coalesce(snapshotProvisionedCapacityGB, 0.0)
+| extend incrementalSnapshotCount = coalesce(incrementalSnapshotCount, 0)
+| project azureRegion, azureZone, subscriptionName, resourceGroup, resourceId, resourceName,
+    diskName, diskType, osDisk, diskSize, diskBW, diskIOPS, diskState, managedBy, createdDateTime,
+    VmName, vnetName, snapshotCount, incrementalSnapshotCount, snapshotBilledCapacityGB, snapshotProvisionedCapacityGB
