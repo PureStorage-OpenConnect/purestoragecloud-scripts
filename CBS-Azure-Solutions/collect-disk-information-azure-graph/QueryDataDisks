@@ -1,28 +1,63 @@
 resources
 | where type =~ 'microsoft.compute/disks'
-| extend vmId = tostring(managedBy)
-| extend VmName = tostring(split(vmId, '/virtualMachines/')[1])
+| where isnull(properties.osType)
+| extend vmIdRaw = tostring(managedBy)
+| extend vmIdKey = tolower(vmIdRaw)
+| extend vmIdParts = split(vmIdRaw, '/')
+| extend isVmss = vmIdRaw contains '/virtualMachineScaleSets/'
+| extend VmName = iff(isVmss,
+    strcat(tostring(vmIdParts[8]), '_', tostring(vmIdParts[array_length(vmIdParts) - 1])),
+    tostring(vmIdParts[array_length(vmIdParts) - 1]))
+| extend resourceId = tolower(tostring(id))
 | join kind=leftouter (
     resources
     | where type =~ 'microsoft.network/networkinterfaces'
-    | extend attachedVmId = tostring(properties.virtualMachine.id)
+    | extend attachedVmId = tolower(tostring(properties.virtualMachine.id))
     | where isnotempty(attachedVmId)
-    | extend vnetId = tostring(properties.ipConfigurations[0].properties.subnet.id)
-    | extend vnetName = tostring(split(vnetId, '/')[8])
-    | project attachedVmId, vnetName
-) on $left.vmId == $right.attachedVmId
+    | mv-expand ipcfg = properties.ipConfigurations
+    | extend subnetId = tostring(ipcfg.properties.subnet.id)
+    | where isnotempty(subnetId)
+    | extend nicVnet = tostring(split(subnetId, '/')[8])
+    | extend nicSubnet = tostring(split(subnetId, '/')[10])
+    | summarize
+        vnetName = strcat_array(make_set(nicVnet), ';'),
+        subnetName = strcat_array(make_set(nicSubnet), ';'),
+        nicNames = strcat_array(make_set(name), ';')
+        by attachedVmId
+) on $left.vmIdKey == $right.attachedVmId
 | join kind=leftouter (
     resourcecontainers
     | where type =~ 'microsoft.resources/subscriptions'
     | project subscriptionName = name, subscriptionId
 ) on subscriptionId
+| join kind=leftouter (
+    resources
+    | where type =~ 'microsoft.compute/snapshots'
+    | extend sourceDiskId = tolower(tostring(properties.creationData.sourceResourceId))
+    | extend snapDiskSizeGB = toreal(properties.diskSizeGB)
+    | extend isIncremental = tobool(properties.incremental)
+    | summarize
+        snapshotCount = count(),
+        snapshotBilledCapacityGB = sumif(snapDiskSizeGB, isIncremental == false),
+        snapshotProvisionedCapacityGB = sum(snapDiskSizeGB),
+        incrementalSnapshotCount = countif(isIncremental == true)
+        by sourceDiskId
+) on $left.resourceId == $right.sourceDiskId
+| extend snapshotCount = coalesce(snapshotCount, 0)
+| extend snapshotBilledCapacityGB = coalesce(snapshotBilledCapacityGB, 0.0)
+| extend snapshotProvisionedCapacityGB = coalesce(snapshotProvisionedCapacityGB, 0.0)
+| extend incrementalSnapshotCount = coalesce(incrementalSnapshotCount, 0)
+| extend vnetLookupStatus = case(
+    isempty(vmIdRaw), 'unattached-disk',
+    isVmss, 'vmss-managed-nic',
+    isempty(vnetName), 'no-nic-matched',
+    'ok')
 | extend azureRegion = location
-| extend azureZone = strcat_array(zones, '"')
-| extend resourceId = tolower(tostring(id))
+| extend azureZone = strcat_array(zones, ',')
 | extend resourceName = name
 | extend diskName = name
-| extend diskType = sku.name
-| extend osDisk = properties.osType
+| extend diskType = tostring(sku.name)
+| extend osDisk = tostring(properties.osType)
 | extend diskSize = tostring(properties.diskSizeGB)
 | extend diskState = tostring(properties.diskState)
 | extend diskBW = tostring(properties.diskMBpsReadWrite)
