@@ -45,6 +45,14 @@ the next section.
 In `QueryDataDisks` every row is a data disk, so the column is always empty; it
 is kept so the two queries produce the same schema.
 
+`vmOsType` is the operating system of the **VM the disk is attached to**, which
+is the column you want when you need to tell Windows and Linux workloads apart.
+A data disk carries no OS type of its own, because `properties.osType` is what
+Azure uses to mark a disk as an OS disk in the first place. `vmOsType` is read
+from the VM resource, or from the scale set's `virtualMachineProfile` for disks
+on scale set instances. It is empty only for unattached disks, which have no VM
+to read it from.
+
 `diskState` distinguishes an attached disk from one that is provisioned and
 billed but connected to nothing. `Unattached` disks bill at full provisioned
 capacity and are worth calling out separately in a sizing conversation.
@@ -119,8 +127,13 @@ referencing it twice returns `DisallowedMaxNumberOfRemoteTables`. Both queries
 have been run successfully through the Resource Graph REST API as well as
 Resource Graph Explorer.
 
-If you extend them, count the operations before you add a join. The current
-shape is three joins plus one union, which is at the documented ceiling.
+If you extend them, count the operations first. The current shape is four joins
+plus two unions, which is **above** the documented ceiling of three combined
+`join` and `union` operations. Both queries execute today through Resource Graph
+Explorer and the REST API, verified, but that extra headroom is undocumented and
+Microsoft could tighten it. If a future change starts returning an operator or
+remote-table error, the `vmOsType` join is the one to drop first: it is the only
+clause that is nice-to-have rather than load-bearing.
 
 Resource Graph data is eventually consistent. A disk attached or resized in the
 last few minutes may not be reflected yet.
