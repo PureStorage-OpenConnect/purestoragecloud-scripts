@@ -57,6 +57,19 @@ resources
 | extend snapshotBilledCapacityGB = coalesce(snapshotBilledCapacityGB, 0.0)
 | extend snapshotProvisionedCapacityGB = coalesce(snapshotProvisionedCapacityGB, 0.0)
 | extend incrementalSnapshotCount = coalesce(incrementalSnapshotCount, 0)
+| join kind=leftouter (
+    resources
+    | where type =~ 'microsoft.compute/virtualmachines'
+    | project osKey = tolower(tostring(id)),
+              vmOsType = tostring(properties.storageProfile.osDisk.osType)
+    | union (
+        resources
+        | where type =~ 'microsoft.compute/virtualmachinescalesets'
+        | project osKey = tolower(tostring(id)),
+                  vmOsType = tostring(properties.virtualMachineProfile.storageProfile.osDisk.osType)
+    )
+    | where isnotempty(vmOsType)
+) on $left.ownerKey == $right.osKey
 | extend vnetLookupStatus = case(
     isempty(vmIdRaw), 'unattached-disk',
     isnotempty(vnetName) and isVmss, 'ok-vmss-instance-nic',
@@ -75,6 +88,6 @@ resources
 | extend diskIOPS = tostring(properties.diskIOPSReadWrite)
 | extend createdDateTime = tostring(properties.timeCreated)
 | project azureRegion, azureZone, subscriptionName, resourceGroup, resourceId, resourceName,
-    diskName, diskType, osDisk, diskSize, diskBW, diskIOPS, diskState, managedBy, createdDateTime,
+    diskName, diskType, osDisk, vmOsType, diskSize, diskBW, diskIOPS, diskState, managedBy, createdDateTime,
     VmName, vmssName, vnetName, subnetName, nicNames, vnetLookupStatus,
     snapshotCount, incrementalSnapshotCount, snapshotBilledCapacityGB, snapshotProvisionedCapacityGB
